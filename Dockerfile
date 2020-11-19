@@ -1,45 +1,45 @@
-FROM lambci/lambda:build-provided
+FROM lambci/lambda:build-provided.al2
 
 LABEL maintainer="Development Seed <info@developmentseed.org>"
 LABEL authors="Matthew Hanson  <matt.a.hanson@gmail.com>"
 
 # install system libraries
 RUN \
-    yum makecache fast; \
-    yum install -y wget libpng-devel nasm; \
-    yum install -y bash-completion --enablerepo=epel; \
-    yum clean all; \
-    yum autoremove
+  yum makecache fast; \
+  yum install -y \
+    wget libtiff-devel libffi-devel lib nasm vim rsync; \
+  yum clean all; \
+  yum autoremove
 
 # versions of packages
-ENV \
-    GDAL_VERSION=3.0.1 \
-    PROJ_VERSION=6.2.0 \
-    GEOS_VERSION=3.8.0 \
-    GEOTIFF_VERSION=1.5.1 \
-    HDF4_VERSION=4.2.14 \
-    HDF5_VERSION=1.10.5 \
-    NETCDF_VERSION=4.7.1 \
-    NGHTTP2_VERSION=1.39.2 \
-    OPENJPEG_VERSION=2.3.1 \
-    CURL_VERSION=7.66.0 \
-    LIBJPEG_TURBO_VERSION=2.0.3 \
-    PKGCONFIG_VERSION=0.29.2 \
-    SZIP_VERSION=2.1.1 \
-    WEBP_VERSION=1.0.3 \
-    ZSTD_VERSION=1.4.3 \
-    OPENSSL_VERSION=1.0.2
+ENV GDAL_VERSION=3.2.0
+ENV PROJ_VERSION=7.2.0
+ENV GEOS_VERSION=3.8.1
+ENV GEOTIFF_VERSION=1.6.0
+ENV HDF4_VERSION=4.2.15
+ENV HDF5_VERSION=1.10.7
+ENV NETCDF_VERSION=4.7.2
+ENV NGHTTP2_VERSION=1.41.0
+ENV OPENJPEG_VERSION=2.3.1
+ENV PNG_VERSION=1.6.37
+ENV CURL_VERSION=7.73.0
+ENV LIBJPEG_TURBO_VERSION=2.0.6
+ENV PKGCONFIG_VERSION=0.29.2
+ENV SZIP_VERSION=2.1.1
+ENV WEBP_VERSION=1.0.3
+ENV ZSTD_VERSION=1.4.3
+ENV OPENSSL_VERSION=1.1.1
+ENV SQLITE_VERSION=3330000
 
 # Paths to things
-ENV \
-    BUILD=/build \
-    NPROC=4 \
-    PREFIX=/usr/local \
-    GDAL_CONFIG=/usr/local/bin/gdal-config \
-    LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 \
-    PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig:/usr/lib64/pkgconfig \
-    GDAL_DATA=${PREFIX}/share/gdal \
-    PROJ_LIB=${PREFIX}/share/proj
+ENV BUILD /build
+ENV NPROC 4
+ENV PREFIX /usr/local
+ENV GDAL_CONFIG /usr/local/bin/gdal-config
+ENV LD_LIBRARY_PATH /usr/local/lib:/usr/local/lib64:/usr/local/openssl/lib/
+ENV PKG_CONFIG_PATH $PREFIX/lib/pkgconfig:/usr/lib64/pkgconfig
+ENV GDAL_DATA $PREFIX/share/gdal
+ENV PROJ_LIB $PREFIX/share/proj
 
 # switch to a build directory
 WORKDIR /build
@@ -48,18 +48,19 @@ WORKDIR /build
 RUN \
     mkdir pkg-config; \
     wget -qO- https://pkg-config.freedesktop.org/releases/pkg-config-$PKGCONFIG_VERSION.tar.gz \
-        | tar xvz -C pkg-config --strip-components=1; cd pkg-config; \
-    ./configure --prefix=$PREFIX CFLAGS="-O2 -Os"; \
+        | tar xz -C pkg-config --strip-components=1; cd pkg-config; \
+    ./configure --with-internal-glib --prefix=$PREFIX CFLAGS="-O2 -Os"; \
     make -j ${NPROC} install; \
     cd ../; rm -rf pkg-config
 
-# proj
+# sqlite
 RUN \
-    mkdir proj; \
-    wget -qO- http://download.osgeo.org/proj/proj-$PROJ_VERSION.tar.gz | tar xvz -C proj --strip-components=1; cd proj; \
-    ./configure --prefix=$PREFIX; \
+    mkdir sqlite; \
+    wget -qO- https://www.sqlite.org/2020/sqlite-autoconf-$SQLITE_VERSION.tar.gz \
+        | tar xz -C sqlite --strip-components=1; cd sqlite; \
+    ./configure --enable-static --enable-shared --prefix=$PREFIX; \
     make -j ${NPROC} install; \
-    cd ..; rm -rf proj
+    cd ../; rm -rf sqlite
 
 # nghttp2
 RUN \
@@ -70,12 +71,29 @@ RUN \
     make -j ${NPROC} install; \
     cd ..; rm -rf nghttp2
 
+# PNG
+RUN \
+    mkdir png; \
+    wget -qO- https://download.sourceforge.net/libpng/libpng-${PNG_VERSION}.tar.gz \
+        | tar xz -C png --strip-components=1; cd png; \
+    ./configure --prefix=${PREFIX}; \
+    make install; \
+    cd ..; rm -rf png
+
+# Open SSL is needed for building Python so it's included here for ease
+RUN \
+    mkdir openssl; \
+    wget -qO- https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz \
+        | tar xz -C openssl --strip-components=1; cd openssl; \
+    ./config shared --prefix=${PREFIX}/openssl --openssldir=${PREFIX}/openssl; \
+    make depend; make install; cd ..; rm -rf openssl
+
 # curl
 RUN \
     mkdir curl; \
     wget -qO- https://curl.haxx.se/download/curl-${CURL_VERSION}.tar.gz \
-        | tar xvz -C curl --strip-components=1; cd curl; \
-    ./configure --prefix=${PREFIX} --disable-manual --disable-cookies --with-nghttp2=${PREFIX}; \
+        | tar xz -C curl --strip-components=1; cd curl; \
+    ./configure --prefix=${PREFIX} --with-ssl=${PREFIX}/openssl --disable-manual --disable-cookies --with-nghttp2=${PREFIX}; \
     make -j ${NPROC} install; \
     cd ..; rm -rf curl
 
@@ -97,25 +115,44 @@ RUN \
     make -j ${NPROC} install; \
     cd ..; rm -rf szip
 
+# openjpeg
+RUN \
+    mkdir openjpeg; \
+    wget -qO- https://github.com/uclouvain/openjpeg/archive/v$OPENJPEG_VERSION.tar.gz \
+        | tar xz -C openjpeg --strip-components=1; cd openjpeg; mkdir build; cd build; \
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX; \
+    make -j ${NPROC} install; \
+    cd ../..; rm -rf openjpeg
+
+# jpeg_turbo
+RUN \
+    mkdir jpeg; \
+    wget -qO- https://github.com/libjpeg-turbo/libjpeg-turbo/archive/${LIBJPEG_TURBO_VERSION}.tar.gz \
+        | tar xz -C jpeg --strip-components=1; cd jpeg; \
+    cmake -G"Unix Makefiles" -DCMAKE_INSTALL_PREFIX=$PREFIX .; \
+    make -j $(nproc) install; \
+    cd ..; rm -rf jpeg
+
 # libhdf4
 RUN \
     mkdir hdf4; \
     wget -qO- https://support.hdfgroup.org/ftp/HDF/releases/HDF$HDF4_VERSION/src/hdf-$HDF4_VERSION.tar \
-        | tar xv -C hdf4 --strip-components=1; cd hdf4; \
+        | tar x -C hdf4 --strip-components=1; cd hdf4; \
     ./configure \
         --prefix=$PREFIX \
         --with-szlib=$PREFIX \
+        --with-jpeg=$PREFIX \
         --enable-shared \
         --disable-netcdf \
         --disable-fortran; \
     make -j ${NPROC} install; \
-    cd ..; rm -rf hdf4
+    cd ..; rm -rf hdf4; ls
 
 # libhdf5
 RUN \
     mkdir hdf5; \
     wget -qO- https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-${HDF5_VERSION%.*}/hdf5-${HDF5_VERSION}/src/hdf5-$HDF5_VERSION.tar.gz \
-        | tar xvz -C hdf5 --strip-components=1; cd hdf5; \
+        | tar xz -C hdf5 --strip-components=1; cd hdf5; \
     ./configure \
         --prefix=$PREFIX \
         --with-szlib=$PREFIX; \
@@ -126,7 +163,7 @@ RUN \
 RUN \
     mkdir netcdf; \
     wget -qO- https://github.com/Unidata/netcdf-c/archive/v$NETCDF_VERSION.tar.gz \
-        | tar xvz -C netcdf --strip-components=1; cd netcdf; \
+        | tar xz -C netcdf --strip-components=1; cd netcdf; \
     ./configure --prefix=$PREFIX --enable-hdf4; \
     make -j ${NPROC} install; \
     cd ..; rm -rf netcdf
@@ -135,7 +172,7 @@ RUN \
 RUN \
     mkdir webp; \
     wget -qO- https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-${WEBP_VERSION}.tar.gz \
-        | tar xvz -C webp --strip-components=1; cd webp; \
+        | tar xz -C webp --strip-components=1; cd webp; \
     CFLAGS="-O2 -Wl,-S" PKG_CONFIG_PATH="/usr/lib64/pkgconfig" ./configure --prefix=$PREFIX; \
     make -j ${NPROC} install; \
     cd ..; rm -rf webp
@@ -144,33 +181,24 @@ RUN \
 RUN \
     mkdir zstd; \
     wget -qO- https://github.com/facebook/zstd/archive/v${ZSTD_VERSION}.tar.gz \
-        | tar -xvz -C zstd --strip-components=1; cd zstd; \
+        | tar -xz -C zstd --strip-components=1; cd zstd; \
     make -j ${NPROC} install PREFIX=$PREFIX ZSTD_LEGACY_SUPPORT=0 CFLAGS=-O1 --silent; \
     cd ..; rm -rf zstd
 
-# openjpeg
-RUN \
-    mkdir openjpeg; \
-    wget -qO- https://github.com/uclouvain/openjpeg/archive/v$OPENJPEG_VERSION.tar.gz \
-        | tar xvz -C openjpeg --strip-components=1; cd openjpeg; mkdir build; cd build; \
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX; \
-    make -j ${NPROC} install; \
-    cd ../..; rm -rf openjpeg
 
-# jpeg_turbo
+# proj
 RUN \
-    mkdir jpeg; \
-    wget -qO- https://github.com/libjpeg-turbo/libjpeg-turbo/archive/${LIBJPEG_TURBO_VERSION}.tar.gz \
-        | tar xvz -C jpeg --strip-components=1; cd jpeg; \
-    cmake -G"Unix Makefiles" -DCMAKE_INSTALL_PREFIX=$PREFIX .; \
-    make -j $(nproc) install; \
-    cd ..; rm -rf jpeg
+    mkdir proj; \
+    wget -qO- http://download.osgeo.org/proj/proj-$PROJ_VERSION.tar.gz | tar xz -C proj --strip-components=1; cd proj; \
+    ./configure --prefix=$PREFIX --with-curl=${PREFIX}/bin/curl-config; \
+    make -j ${NPROC} install; \
+    cd ..; rm -rf proj
 
 # geotiff
 RUN \
     mkdir geotiff; \
     wget -qO- https://download.osgeo.org/geotiff/libgeotiff/libgeotiff-$GEOTIFF_VERSION.tar.gz \
-        | tar xvz -C geotiff --strip-components=1; cd geotiff; \
+        | tar xz -C geotiff --strip-components=1; cd geotiff; \
     ./configure --prefix=${PREFIX} \
         --with-proj=${PREFIX} --with-jpeg=${PREFIX} --with-zip=yes;\
     make -j ${NPROC} install; \
@@ -180,7 +208,7 @@ RUN \
 RUN \
     mkdir gdal; \
     wget -qO- http://download.osgeo.org/gdal/$GDAL_VERSION/gdal-$GDAL_VERSION.tar.gz \
-        | tar xvz -C gdal --strip-components=1; cd gdal; \
+        | tar xz -C gdal --strip-components=1; cd gdal; \
     ./configure \
         --disable-debug \
         --disable-static \
@@ -203,14 +231,6 @@ RUN \
         LDFLAGS="-Wl,-rpath,'\$\$ORIGIN'"; \
     make -j ${NPROC} install; \
     cd ${BUILD}; rm -rf gdal
-
-# Open SSL is needed for building Python so it's included here for ease
-RUN \
-    mkdir openssl; \
-    wget -qO- https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz \
-        | tar xvz -C openssl --strip-components=1; cd openssl; \
-    ./config shared --prefix=${PREFIX}/openssl --openssldir=${PREFIX}/openssl; \
-    make depend; make install; cd ..; rm -rf openssl
 
 
 # Copy shell scripts and config files over

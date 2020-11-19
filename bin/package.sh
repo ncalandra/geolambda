@@ -11,6 +11,9 @@ mkdir -p $DEPLOY_DIR/lib
 # copy libs
 cp -P ${PREFIX}/lib/*.so* $DEPLOY_DIR/lib/
 cp -P ${PREFIX}/lib64/libjpeg*.so* $DEPLOY_DIR/lib/
+cp -P ${PREFIX}/openssl/lib/*.so* $DEPLOY_DIR/lib/
+cp -P /usr/lib64/libtiff*.so* $DEPLOY_DIR/lib/
+cp -P /usr/lib64/libjbig*.so* $DEPLOY_DIR/lib/
 
 strip $DEPLOY_DIR/lib/* || true
 

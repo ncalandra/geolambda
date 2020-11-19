@@ -24,7 +24,7 @@ rsync -ax $PYPATH/ $DEPLOY_DIR/ ${EXCLUDES[@]}
 
 # prepare dir for lambda layer deployment - https://docs.aws.amazon.com/lambda/latest/dg/configuration-layers.html#configuration-layers-path
 cp -r $DEPLOY_DIR ./python
-rm ./python/lambda_function.py
+#rm ./python/lambda_function.py
 
 # zip up deploy package
 zip -ruq lambda-deploy.zip ./python
